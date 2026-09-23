@@ -11,6 +11,8 @@ return [
     ],
     'woocommerce' => [
         'url'             => bot_env('WEBSITE_URL', 'https://computer01.com'),
+        // اگر ربات و وردپرس روی یک هاست هستند، مثلاً: http://127.0.0.1
+        'internal_url'    => bot_env('WC_INTERNAL_URL', ''),
         'consumer_key'    => bot_env('WC_CONSUMER_KEY', ''),
         'consumer_secret' => bot_env('WC_CONSUMER_SECRET', ''),
     ],

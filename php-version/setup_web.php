@@ -14,10 +14,12 @@ foreach ($config['paths'] as $dir) {
     if (!is_dir($dir)) @mkdir($dir, 0755, true);
 }
 
-$action = $_GET['action'] ?? 'menu';
-$webhookUrl = isset($_GET['url']) ? $_GET['url'] :
-    ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') .
-    ($_SERVER['HTTP_HOST'] ?? '') . str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')) . '/index.php');
+$action = $_POST['action'] ?? ($_GET['action'] ?? 'menu');
+$webhookUrl = $_POST['url'] ?? ($_GET['url'] ?? null);
+if ($webhookUrl === null || $webhookUrl === '') {
+    $webhookUrl = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://') .
+        ($_SERVER['HTTP_HOST'] ?? '') . str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')) . '/index.php');
+}
 
 $msg = '';
 $msgType = 'info';
@@ -54,10 +56,14 @@ function pageFoot(): void { echo "</div></body></html>"; }
 pageHead('تنظیمات ربات تلگرام');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $dbPass = $_POST['setup_key'] ?? '';
-    $correctPass = $config['admin']['upload_code'];
-    if ($dbPass !== $correctPass) {
-        $msg = 'کد دسترسی اشتباه است.';
+    $dbPass = trim((string)($_POST['setup_key'] ?? ''));
+    $dbPass = ltrim($dbPass, '/');
+    $correctPass = trim((string)$config['admin']['upload_code']);
+    if ($correctPass === '') {
+        $msg = 'ADMIN_UPLOAD_CODE در فایل .env خالی است یا خوانده نشد. فایل .env را در همان پوشه ربات چک کنید.';
+        $msgType = 'err';
+    } elseif ($dbPass !== $correctPass) {
+        $msg = 'کد دسترسی اشتباه است. همان مقدار ADMIN_UPLOAD_CODE داخل .env را بدون فاصله وارد کنید (مثلاً ADMIN_PRICE_1402).';
         $msgType = 'err';
     } else {
         Database::bootstrap($config);

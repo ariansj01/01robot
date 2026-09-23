@@ -8,6 +8,8 @@ function bot_env_load(string $dir): void
     if ($lines === false) return;
     foreach ($lines as $line) {
         $line = trim($line);
+        // حذف BOM احتمالی
+        $line = preg_replace('/^\xEF\xBB\xBF/', '', $line);
         if ($line === '' || str_starts_with($line, '#')) continue;
         if (!str_contains($line, '=')) continue;
         [$key, $value] = explode('=', $line, 2);
@@ -19,17 +21,18 @@ function bot_env_load(string $dir): void
         ) {
             $value = substr($value, 1, -1);
         }
-        if (!array_key_exists($key, $_ENV)) $_ENV[$key] = $value;
-        if (!array_key_exists($key, $_SERVER)) $_SERVER[$key] = $value;
+        // مقادیر فایل .env همیشه اولویت دارند
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
         putenv($key . '=' . $value);
     }
 }
 
 function bot_env(string $key, $default = null)
 {
-    if (array_key_exists($key, $_ENV)) return $_ENV[$key];
-    if (array_key_exists($key, $_SERVER)) return $_SERVER[$key];
+    if (array_key_exists($key, $_ENV) && $_ENV[$key] !== '') return $_ENV[$key];
+    if (array_key_exists($key, $_SERVER) && $_SERVER[$key] !== '') return $_SERVER[$key];
     $v = getenv($key);
-    if ($v !== false) return $v;
+    if ($v !== false && $v !== '') return $v;
     return $default;
 }

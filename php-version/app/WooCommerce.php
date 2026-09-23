@@ -5,12 +5,21 @@ namespace Bot;
 class WooCommerce
 {
     private array $config;
+    private string $publicHost;
     private string $baseUrl;
 
     public function __construct(array $config)
     {
         $this->config = $config['woocommerce'];
-        $this->baseUrl = rtrim($this->config['url'], '/') . '/wp-json/wc/v3';
+        $public = rtrim($this->config['url'], '/');
+        $this->publicHost = (string)(parse_url($public, PHP_URL_HOST) ?: 'computer01.com');
+
+        $internal = trim((string)($this->config['internal_url'] ?? ''));
+        if ($internal !== '') {
+            $this->baseUrl = rtrim($internal, '/') . '/wp-json/wc/v3';
+        } else {
+            $this->baseUrl = $public . '/wp-json/wc/v3';
+        }
     }
 
     private function doCurl(string $url, string $method, bool $useBasicAuth): array
@@ -18,8 +27,15 @@ class WooCommerce
         $ch = curl_init($url);
         $headers = [
             'Accept: application/json',
-            'User-Agent: Computer01-TelegramBot/1.0',
+            'User-Agent: Mozilla/5.0 (compatible; Computer01Bot/1.0; +https://computer01.com)',
         ];
+
+        // وقتی از 127.0.0.1 می‌زنیم، Host باید دامنه واقعی سایت باشد
+        $host = (string)(parse_url($url, PHP_URL_HOST) ?: '');
+        if (in_array($host, ['127.0.0.1', 'localhost', '::1'], true)) {
+            $headers[] = 'Host: ' . $this->publicHost;
+        }
+
         $opts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 60,
@@ -29,6 +45,7 @@ class WooCommerce
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
             CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
         ];
         if ($useBasicAuth) {
             $opts[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
@@ -38,11 +55,13 @@ class WooCommerce
         $response = curl_exec($ch);
         $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
+        $finalUrl = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
         return [
             'body' => $response === false ? '' : (string)$response,
             'code' => $httpCode,
             'error' => $error,
+            'url' => $finalUrl !== '' ? $finalUrl : $url,
         ];
     }
 
@@ -57,7 +76,7 @@ class WooCommerce
             if (is_array($data)) {
                 $msg = $data['message'] ?? ($data['code'] ?? json_encode($data, JSON_UNESCAPED_UNICODE));
             } else {
-                $snippet = trim(strip_tags(mb_substr($res['body'], 0, 180)));
+                $snippet = trim(preg_replace('/\s+/', ' ', strip_tags(mb_substr($res['body'], 0, 200))));
                 $msg = 'HTTP ' . $code . ($snippet !== '' ? ' - ' . $snippet : '');
             }
             throw new \RuntimeException($msg);
@@ -76,7 +95,7 @@ class WooCommerce
             throw new \RuntimeException('کلیدهای WC_CONSUMER_KEY / WC_CONSUMER_SECRET در .env خالی هستند.');
         }
 
-        // 1) Basic Auth (مثل نسخه Node) — برای HTTPS معمولاً درست کار می‌کند
+        // 1) Basic Auth
         $urlBasic = $this->baseUrl . $path;
         if (!empty($query)) {
             $urlBasic .= '?' . http_build_query($query);
@@ -86,7 +105,7 @@ class WooCommerce
             return $this->parseWcResponse($resBasic);
         }
 
-        // 2) Query Auth — اگر هاست هدر Authorization را حذف کند
+        // 2) Query Auth
         $queryAuth = array_merge([
             'consumer_key'    => $key,
             'consumer_secret' => $secret,
@@ -97,14 +116,17 @@ class WooCommerce
             return $this->parseWcResponse($resQuery);
         }
 
-        // هر دو شکست خوردند — خطای واضح‌تر را برگردان
         try {
             return $this->parseWcResponse($resBasic['code'] > 0 ? $resBasic : $resQuery);
         } catch (\Throwable $e1) {
             try {
                 return $this->parseWcResponse($resQuery);
             } catch (\Throwable $e2) {
-                throw new \RuntimeException($e1->getMessage() . ' | fallback: ' . $e2->getMessage());
+                $hint = '';
+                if (str_contains($e1->getMessage(), '403') || str_contains($e2->getMessage(), '403')) {
+                    $hint = ' | راهنما: فایروال هاست/وردپرس درخواست را بلاک کرده. در .env بگذارید WC_INTERNAL_URL=http://127.0.0.1 و Host از دامنه سایت استفاده می‌شود. یا IP سرور ربات را در Wordfence/Imunify360 وایت‌لیست کنید.';
+                }
+                throw new \RuntimeException($e1->getMessage() . ' | fallback: ' . $e2->getMessage() . $hint);
             }
         }
     }
@@ -245,11 +267,27 @@ class WooCommerce
 
     public function testConnection(): array
     {
+        // تست دسترسی عمومی REST بدون کلید
+        $publicRoot = rtrim($this->config['url'], '/') . '/wp-json/';
+        $probeUrl = (trim((string)($this->config['internal_url'] ?? '')) !== '')
+            ? (rtrim($this->config['internal_url'], '/') . '/wp-json/')
+            : $publicRoot;
+        $probe = $this->doCurl($probeUrl, 'GET', false);
+
         try {
             $data = $this->request('GET', '/products', ['per_page' => 1]);
-            return ['success' => true, 'count' => is_array($data) ? count($data) : 0];
+            return [
+                'success' => true,
+                'count' => is_array($data) ? count($data) : 0,
+                'probe' => 'wp-json HTTP ' . $probe['code'],
+            ];
         } catch (\Throwable $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            $extra = ' | تست /wp-json/ => HTTP ' . $probe['code'];
+            if ($probe['error']) $extra .= ' cURL:' . $probe['error'];
+            if ($probe['code'] === 403) {
+                $extra .= ' | فایروال سایت درخواست سرور را بلاک کرده (نه فقط کلید API).';
+            }
+            return ['success' => false, 'error' => $e->getMessage() . $extra];
         }
     }
 }
