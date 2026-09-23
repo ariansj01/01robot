@@ -1,0 +1,26 @@
+{
+  "name": "laptop-telegram-bot",
+  "version": "1.0.0",
+  "description": "ربات تلگرامی فروش لپ‌تاپ با اتصال به وردپرس",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": ["telegram", "bot", "laptop", "woocommerce"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "mysql2": "^3.11.3",
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "xlsx": "^0.18.5",
+    "csv-parser": "^3.0.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

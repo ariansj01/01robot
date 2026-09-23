@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Logs & runtime
+*.log
+npm-debug.log*
+php-version/var/
+php-version/uploads/*.csv
+php-version/uploads/*.xlsx
+php-version/uploads/*.xls
+!php-version/uploads/.gitkeep
+!php-version/uploads/SAMPLE_COLLEAGUE_LIST.csv
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# PHP / Node caches
+.phpunit.result.cache
+.php-cs-fixer.cache
+dist/
+coverage/

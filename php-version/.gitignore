@@ -1,0 +1,11 @@
+vendor/
+var/
+uploads/*.csv
+uploads/*.xlsx
+uploads/*.xls
+!uploads/.gitkeep
+.env.local
+.phpunit.result.cache
+composer.lock
+node_modules/
+*.log
