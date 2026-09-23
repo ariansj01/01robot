@@ -85,7 +85,9 @@ class Handler
         if (!$this->memberGate($chatId, $userId, $name)) return;
         Repo::createOrUpdateUser($userId, $name, $username);
 
-        if ($text === $this->config['admin']['upload_code']) {
+        $adminCode = trim((string)$this->config['admin']['upload_code']);
+        $textNorm = ltrim($text, '/');
+        if ($text === $adminCode || $textNorm === $adminCode || $text === '/' . $adminCode) {
             Repo::setState($userId, ['action' => 'upload_admin_file']);
             $this->bot->sendMessage(
                 $chatId,

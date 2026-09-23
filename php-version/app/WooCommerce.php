@@ -13,46 +13,100 @@ class WooCommerce
         $this->baseUrl = rtrim($this->config['url'], '/') . '/wp-json/wc/v3';
     }
 
-    private function request(string $method, string $path, array $query = []): array
+    private function doCurl(string $url, string $method, bool $useBasicAuth): array
     {
-        // روی خیلی از هاست‌ها هدر Authorization حذف می‌شود؛ کلید را در Query می‌فرستیم.
-        $query = array_merge([
-            'consumer_key'    => $this->config['consumer_key'],
-            'consumer_secret' => $this->config['consumer_secret'],
-        ], $query);
-
-        $url = $this->baseUrl . $path . '?' . http_build_query($query);
-
         $ch = curl_init($url);
-        curl_setopt_array($ch, [
+        $headers = [
+            'Accept: application/json',
+            'User-Agent: Computer01-TelegramBot/1.0',
+        ];
+        $opts = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 60,
             CURLOPT_CONNECTTIMEOUT => 20,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => false,
-            CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+            CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
             CURLOPT_FOLLOWLOCATION => true,
-        ]);
-
+        ];
+        if ($useBasicAuth) {
+            $opts[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
+            $opts[CURLOPT_USERPWD] = $this->config['consumer_key'] . ':' . $this->config['consumer_secret'];
+        }
+        curl_setopt_array($ch, $opts);
         $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
         curl_close($ch);
+        return [
+            'body' => $response === false ? '' : (string)$response,
+            'code' => $httpCode,
+            'error' => $error,
+        ];
+    }
 
-        if ($error) {
-            throw new \RuntimeException('cURL: ' . $error);
+    private function parseWcResponse(array $res): array
+    {
+        if ($res['error']) {
+            throw new \RuntimeException('cURL: ' . $res['error']);
         }
-
-        $data = json_decode($response, true);
-        if ($httpCode >= 400) {
-            $msg = is_array($data) ? ($data['message'] ?? json_encode($data, JSON_UNESCAPED_UNICODE)) : ('HTTP ' . $httpCode);
+        $data = json_decode($res['body'], true);
+        $code = $res['code'];
+        if ($code >= 400) {
+            if (is_array($data)) {
+                $msg = $data['message'] ?? ($data['code'] ?? json_encode($data, JSON_UNESCAPED_UNICODE));
+            } else {
+                $snippet = trim(strip_tags(mb_substr($res['body'], 0, 180)));
+                $msg = 'HTTP ' . $code . ($snippet !== '' ? ' - ' . $snippet : '');
+            }
             throw new \RuntimeException($msg);
         }
         if (!is_array($data)) {
-            throw new \RuntimeException('پاسخ نامعتبر از ووکامرس (ممکن است کلید API یا آدرس سایت اشتباه باشد).');
+            throw new \RuntimeException('پاسخ نامعتبر از ووکامرس.');
         }
         return $data;
+    }
+
+    private function request(string $method, string $path, array $query = []): array
+    {
+        $key = $this->config['consumer_key'] ?? '';
+        $secret = $this->config['consumer_secret'] ?? '';
+        if ($key === '' || $secret === '') {
+            throw new \RuntimeException('کلیدهای WC_CONSUMER_KEY / WC_CONSUMER_SECRET در .env خالی هستند.');
+        }
+
+        // 1) Basic Auth (مثل نسخه Node) — برای HTTPS معمولاً درست کار می‌کند
+        $urlBasic = $this->baseUrl . $path;
+        if (!empty($query)) {
+            $urlBasic .= '?' . http_build_query($query);
+        }
+        $resBasic = $this->doCurl($urlBasic, $method, true);
+        if ($resBasic['error'] === '' && $resBasic['code'] > 0 && $resBasic['code'] < 400) {
+            return $this->parseWcResponse($resBasic);
+        }
+
+        // 2) Query Auth — اگر هاست هدر Authorization را حذف کند
+        $queryAuth = array_merge([
+            'consumer_key'    => $key,
+            'consumer_secret' => $secret,
+        ], $query);
+        $urlQuery = $this->baseUrl . $path . '?' . http_build_query($queryAuth);
+        $resQuery = $this->doCurl($urlQuery, $method, false);
+        if ($resQuery['error'] === '' && $resQuery['code'] > 0 && $resQuery['code'] < 400) {
+            return $this->parseWcResponse($resQuery);
+        }
+
+        // هر دو شکست خوردند — خطای واضح‌تر را برگردان
+        try {
+            return $this->parseWcResponse($resBasic['code'] > 0 ? $resBasic : $resQuery);
+        } catch (\Throwable $e1) {
+            try {
+                return $this->parseWcResponse($resQuery);
+            } catch (\Throwable $e2) {
+                throw new \RuntimeException($e1->getMessage() . ' | fallback: ' . $e2->getMessage());
+            }
+        }
     }
 
     private function getAttr(array $product, string $name): ?string
