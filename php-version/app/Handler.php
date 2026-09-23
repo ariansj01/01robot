@@ -170,7 +170,7 @@ class Handler
                     }
                     $this->editOrSend($chatId, $mid, '🏷️ لطفاً برند مورد نظر را انتخاب کنید:', Keyboard::brands($brands));
                 } catch (\Throwable $e) {
-                    $this->editOrSend($chatId, $mid, '❌ خطا در دریافت اطلاعات.', Keyboard::back('main_menu'));
+                    $this->editOrSend($chatId, $mid, '❌ خطا در دریافت اطلاعات سایت:\n`' . $e->getMessage() . '`', Keyboard::back('main_menu'));
                 }
                 break;
 
@@ -189,7 +189,7 @@ class Handler
                         Keyboard::products($products)
                     );
                 } catch (\Throwable $e) {
-                    $this->editOrSend($chatId, $mid, '❌ خطا در دریافت محصولات.', Keyboard::back('products'));
+                    $this->editOrSend($chatId, $mid, '❌ خطا در دریافت محصولات:\n`' . $e->getMessage() . '`', Keyboard::back('products'));
                 }
                 break;
 
@@ -516,7 +516,7 @@ class Handler
                 $this->bot->sendMessage($chatId, $chunk, $kb);
             }
         } catch (\Throwable $e) {
-            $this->bot->sendMessage($chatId, '❌ خطا در دریافت لیست قیمت.', Keyboard::back('main_menu'));
+            $this->bot->sendMessage($chatId, '❌ خطا در دریافت لیست قیمت:\n`' . $e->getMessage() . '`', Keyboard::back('main_menu'));
         }
     }
 
@@ -525,7 +525,12 @@ class Handler
         try {
             $all = Repo::getColleaguePrices();
             if (count($all) === 0) {
-                $this->editOrSend($chatId, $mid, '⚠️ لیست قیمت همکاران فعلاً خالی است. بعداً بررسی کنید.', Keyboard::back('main_menu'));
+                $this->editOrSend(
+                    $chatId,
+                    $mid,
+                    "⚠️ لیست قیمت همکاران فعلاً خالی است.\n\nبرای آپلود (فقط ادمین):\n۱) کد ادمین را در چت بفرستید\n۲) فایل CSV را ارسال کنید",
+                    Keyboard::back('main_menu')
+                );
                 return;
             }
             $text = Format::colleagueList($all);
@@ -582,7 +587,7 @@ class Handler
                 }
             }
         } catch (\Throwable $e) {
-            $this->bot->sendMessage($chatId, 'خطا در جستجو.', Keyboard::back('budget_search'));
+            $this->bot->sendMessage($chatId, '❌ خطا در جستجوی بودجه:\n`' . $e->getMessage() . '`', Keyboard::back('budget_search'));
         }
     }
 
@@ -601,7 +606,7 @@ class Handler
                 Keyboard::products($results)
             );
         } catch (\Throwable $e) {
-            $this->bot->sendMessage($chatId, '❌ خطا در جستجو.', Keyboard::back('main_menu'));
+            $this->bot->sendMessage($chatId, '❌ خطا در جستجو:\n`' . $e->getMessage() . '`', Keyboard::back('main_menu'));
         }
     }
 

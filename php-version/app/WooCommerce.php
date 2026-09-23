@@ -15,21 +15,24 @@ class WooCommerce
 
     private function request(string $method, string $path, array $query = []): array
     {
-        $url = $this->baseUrl . $path;
-        if (!empty($query)) {
-            $url .= '?' . http_build_query($query);
-        }
+        // روی خیلی از هاست‌ها هدر Authorization حذف می‌شود؛ کلید را در Query می‌فرستیم.
+        $query = array_merge([
+            'consumer_key'    => $this->config['consumer_key'],
+            'consumer_secret' => $this->config['consumer_secret'],
+        ], $query);
+
+        $url = $this->baseUrl . $path . '?' . http_build_query($query);
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_CONNECTTIMEOUT => 20,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => false,
-            CURLOPT_HTTPAUTH       => CURLAUTH_BASIC,
-            CURLOPT_USERPWD        => $this->config['consumer_key'] . ':' . $this->config['consumer_secret'],
             CURLOPT_HTTPHEADER     => ['Accept: application/json'],
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
+            CURLOPT_FOLLOWLOCATION => true,
         ]);
 
         $response = curl_exec($ch);
@@ -38,15 +41,18 @@ class WooCommerce
         curl_close($ch);
 
         if ($error) {
-            throw new \RuntimeException('cURL error: ' . $error);
+            throw new \RuntimeException('cURL: ' . $error);
         }
 
         $data = json_decode($response, true);
         if ($httpCode >= 400) {
-            $msg = is_array($data) ? ($data['message'] ?? json_encode($data)) : 'HTTP ' . $httpCode;
-            throw new \RuntimeException('WC API error: ' . $msg);
+            $msg = is_array($data) ? ($data['message'] ?? json_encode($data, JSON_UNESCAPED_UNICODE)) : ('HTTP ' . $httpCode);
+            throw new \RuntimeException($msg);
         }
-        return is_array($data) ? $data : [];
+        if (!is_array($data)) {
+            throw new \RuntimeException('پاسخ نامعتبر از ووکامرس (ممکن است کلید API یا آدرس سایت اشتباه باشد).');
+        }
+        return $data;
     }
 
     private function getAttr(array $product, string $name): ?string
