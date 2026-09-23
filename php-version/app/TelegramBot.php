@@ -149,15 +149,22 @@ class TelegramBot
 
     public function checkChannelMembership(int $userId, string $channel): bool
     {
+        if ($channel === '' || $channel === null) {
+            return true;
+        }
         try {
             $resp = $this->api('getChatMember', [
                 'chat_id' => $channel,
                 'user_id' => $userId,
             ]);
-            if (empty($resp['ok'])) return false;
+            if (empty($resp['ok'])) {
+                error_log('[MEMBERSHIP] getChatMember failed: ' . json_encode($resp, JSON_UNESCAPED_UNICODE));
+                return true;
+            }
             $status = $resp['result']['status'] ?? '';
-            return in_array($status, ['member', 'administrator', 'creator'], true);
+            return in_array($status, ['member', 'administrator', 'creator', 'restricted'], true);
         } catch (\Throwable $e) {
+            error_log('[MEMBERSHIP] ' . $e->getMessage());
             return true;
         }
     }

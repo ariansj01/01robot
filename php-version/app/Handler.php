@@ -33,20 +33,21 @@ class Handler
 
     private function memberGate(int $chatId, int $userId, string $fromName = null): bool
     {
-        $channel = $this->config['bot']['channel'];
-        $ok = $this->bot->checkChannelMembership($userId, $channel);
-        if (!$ok) {
-            $link = str_starts_with($channel, '@')
-                ? 'https://t.me/' . substr($channel, 1)
-                : $channel;
-            $this->bot->sendMessage(
-                $chatId,
-                "⚠️ برای استفاده از ربات ابتدا عضو کانال شوید:\n\n[{$channel}]({$link})\n\nبعد از عضو شدن دوباره /start را بفرستید.",
-                null
-            );
-            return false;
-        }
         return true;
+        // $channel = $this->config['bot']['channel'];
+        // $ok = $this->bot->checkChannelMembership($userId, $channel);
+        // if (!$ok) {
+        //     $link = str_starts_with($channel, '@')
+        //         ? 'https://t.me/' . substr($channel, 1)
+        //         : $channel;
+        //     $this->bot->sendMessage(
+        //         $chatId,
+        //         "⚠️ برای استفاده از ربات ابتدا عضو کانال شوید:\n\n[{$channel}]({$link})\n\nبعد از عضو شدن دوباره /start را بفرستید.",
+        //         null
+        //     );
+        //     return false;
+        // }
+        // return true;
     }
 
     private function handleMessage(array $msg): void
