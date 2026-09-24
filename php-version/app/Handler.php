@@ -329,10 +329,12 @@ class Handler
         if (!empty($p['image'])) {
             try {
                 $this->bot->sendPhoto($chatId, $p['image'], $chunks[0], $kb);
-            } catch (\Throwable $e) {
+            }
+            catch (\Throwable $e) {
                 $this->bot->sendMessage($chatId, $chunks[0], $kb);
             }
-        } else {
+        }
+        else {
             $this->bot->sendMessage($chatId, $chunks[0], $kb);
         }
 
@@ -543,10 +545,12 @@ class Handler
                 if ($i === 0) {
                     try {
                         $this->bot->editMessageText($chatId, $mid, $chunk, $kb);
-                    } catch (\Throwable $e) {
+                    }
+                    catch (\Throwable $e) {
                         $this->bot->sendMessage($chatId, $chunk, $kb);
                     }
-                } else {
+                }
+                else {
                     $this->bot->sendMessage($chatId, $chunk, $kb);
                 }
             }
@@ -581,10 +585,12 @@ class Handler
                 if ($i === 0) {
                     try {
                         $this->bot->editMessageText($chatId, $mid, $chunk, $kb);
-                    } catch (\Throwable $e) {
+                    }
+                    catch (\Throwable $e) {
                         $this->bot->sendMessage($chatId, $chunk, $kb);
                     }
-                } else {
+                }
+                else {
                     $this->bot->sendMessage($chatId, $chunk, $kb);
                 }
             }
@@ -629,7 +635,8 @@ class Handler
             try {
                 $this->bot->editMessageText($chatId, $mid, $text, $kb);
                 return;
-            } catch (\Throwable $e) {}
+            }
+            catch (\Throwable $e) {}
         }
         $this->bot->sendMessage($chatId, $text, $kb);
     }
@@ -641,34 +648,16 @@ class Handler
             $this->bot->sendMessage($chatId, '⚠️ برای آپلود فایل ابتدا کد ادمین را ارسال کنید.', Keyboard::back('main_menu'));
             return;
         }
-        $name = $document['file_name'] ?? '';
-        if (!preg_match('/\.(xlsx|xls|csv)$/i', $name)) {
-            $this->bot->sendMessage($chatId, '❌ فرمت فایل نامعتبر است. فقط XLSX, XLS, CSV');
-            return;
-        }
-        $this->bot->sendMessage($chatId, '⏳ در حال پردازش فایل...');
+
+        $fileId = $document['file_id'];
+        $caption = 'فایل شما دریافت و ارسال شد.';
 
         try {
-            $fileId = $document['file_id'];
-            $gf = $this->bot->getFile($fileId);
-            if (empty($gf['ok']) || empty($gf['result']['file_path'])) {
-                throw new \RuntimeException('دریافت اطلاعات فایل از تلگرام ناموفق بود.');
-            }
-            $tgPath = $gf['result']['file_path'];
-            $uploadsDir = $this->config['paths']['uploads'];
-            if (!is_dir($uploadsDir)) mkdir($uploadsDir, 0755, true);
-            $savePath = $uploadsDir . DIRECTORY_SEPARATOR . time() . '_' . basename($name);
-            $this->bot->downloadFile($tgPath, $savePath);
-
-            $result = FileParser::importColleaguePrices($savePath, $name, $userId, $uploadsDir);
+            $this->bot->sendDocument($chatId, $fileId, $caption);
             Repo::setState($userId, null);
-            $this->bot->sendMessage(
-                $chatId,
-                "✅ *آپلود موفق*\n\nتعداد رکورد: *{$result['count']}*\nبرندها: " . (count($result['brands']) ? implode('، ', $result['brands']) : '---') . "\n\nلیست قیمت همکاران به‌روز شد.",
-                Keyboard::main()
-            );
+            $this->bot->sendMessage($chatId, '✅ فایل با موفقیت ارسال شد.', Keyboard::main());
         } catch (\Throwable $e) {
-            $this->bot->sendMessage($chatId, "❌ خطا در پردازش فایل:\n{$e->getMessage()}", Keyboard::back('main_menu'));
+            $this->bot->sendMessage($chatId, "❌ خطا در ارسال فایل:\n{$e->getMessage()}", Keyboard::back('main_menu'));
         }
     }
 }
