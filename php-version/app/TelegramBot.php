@@ -121,6 +121,18 @@ class TelegramBot
         return $this->api('sendPhoto', $params);
     }
 
+    public function sendDocument(int $chatId, string $document, ?string $caption = null, ?array $replyMarkup = null, string $parseMode = 'Markdown')
+    {
+        $params = [
+            'chat_id' => $chatId,
+            'document' => $document,
+            'parse_mode' => $parseMode,
+        ];
+        if ($caption !== null) $params['caption'] = $caption;
+        if ($replyMarkup) $params['reply_markup'] = json_encode($replyMarkup, JSON_UNESCAPED_UNICODE);
+        return $this->api('sendDocument', $params);
+    }
+
     public function getFile(string $fileId): array
     {
         return $this->api('getFile', ['file_id' => $fileId]);

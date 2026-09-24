@@ -84,8 +84,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             catch (Throwable $e) { $msg = 'ERR: ' . htmlspecialchars($e->getMessage()); $msgType = 'err'; }
         } elseif ($action === 'test-api') {
             $r = $wc->testConnection();
-            if ($r['success']) { $msg = "✅ اتصال به وردپرس برقرار است. تعداد محصولات یافت شده: {$r['count']}"; $msgType = 'ok'; }
-            else { $msg = '❌ خطا در اتصال وردپرس: ' . htmlspecialchars($r['error']); $msgType = 'err'; }
+            if ($r['success']) {
+                $mode = $r['mode'] ?? '';
+                $msg = "✅ اتصال به وردپرس برقرار است. تعداد: {$r['count']}" . ($mode ? " (حالت: {$mode})" : '');
+                $msgType = 'ok';
+            }
+            else {
+                $extra = '';
+                if (isset($r['wp_load'])) $extra .= ' | wp_load=' . htmlspecialchars((string)$r['wp_load']);
+                if (isset($r['local_mode'])) $extra .= ' | local=' . htmlspecialchars((string)$r['local_mode']);
+                $msg = '❌ خطا در اتصال وردپرس: ' . htmlspecialchars($r['error']) . $extra;
+                $msgType = 'err';
+            }
         } elseif ($action === 'test-all') {
             ob_start();
             echo "<div dir=\"ltr\"><pre>";

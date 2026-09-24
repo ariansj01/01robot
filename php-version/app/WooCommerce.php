@@ -7,6 +7,8 @@ class WooCommerce
     private array $config;
     private string $publicHost;
     private string $baseUrl;
+    private bool $localMode = false;
+    private bool $wpLoaded = false;
 
     public function __construct(array $config)
     {
@@ -20,6 +22,156 @@ class WooCommerce
         } else {
             $this->baseUrl = $public . '/wp-json/wc/v3';
         }
+
+        $wpLoad = trim((string)($this->config['wp_load'] ?? ''));
+        if ($wpLoad === '') {
+            // حدس مسیر رایج: public_html/telegram_bot -> public_html/wp-load.php
+            $guesses = [
+                dirname(__DIR__) . '/wp-load.php',
+                dirname(__DIR__, 2) . '/wp-load.php',
+                '/home/jknmqzao/public_html/wp-load.php',
+            ];
+            foreach ($guesses as $g) {
+                if (is_file($g)) {
+                    $wpLoad = $g;
+                    break;
+                }
+            }
+        }
+        $this->config['wp_load'] = $wpLoad;
+        $this->localMode = ($wpLoad !== '' && is_file($wpLoad));
+    }
+
+    private function bootWordPress(): void
+    {
+        if ($this->wpLoaded) return;
+        $path = $this->config['wp_load'] ?? '';
+        if ($path === '' || !is_file($path)) {
+            throw new \RuntimeException('فایل wp-load.php پیدا نشد. مسیر WC_WP_LOAD را در .env تنظیم کنید.');
+        }
+        if (!defined('ABSPATH')) {
+            // جلوگیری از خروج زودهنگام بعضی قالب‌ها
+            if (!defined('WP_USE_THEMES')) define('WP_USE_THEMES', false);
+            require_once $path;
+        }
+        if (!function_exists('wc_get_products') && !class_exists('WooCommerce')) {
+            throw new \RuntimeException('ووکامرس روی وردپرس فعال نیست یا لود نشده.');
+        }
+        $this->wpLoaded = true;
+    }
+
+    /** خواندن محصولات مستقیم از وردپرس (بدون HTTP / فایروال) */
+    private function localRequest(string $path, array $query = []): array
+    {
+        $this->bootWordPress();
+
+        if (preg_match('#^/products/(\d+)$#', $path, $m)) {
+            $product = wc_get_product((int)$m[1]);
+            if (!$product) {
+                throw new \RuntimeException('محصول پیدا نشد.');
+            }
+            return $this->wcProductToRestArray($product);
+        }
+
+        if ($path !== '/products') {
+            throw new \RuntimeException('مسیر پشتیبانی‌نشده در حالت محلی: ' . $path);
+        }
+
+        $page = max(1, (int)($query['page'] ?? 1));
+        $perPage = max(1, min(100, (int)($query['per_page'] ?? 100)));
+
+        if (!empty($query['search'])) {
+            $q = new \WP_Query([
+                'post_type'      => 'product',
+                'post_status'    => $query['status'] ?? 'publish',
+                's'              => $query['search'],
+                'posts_per_page' => $perPage,
+                'paged'          => $page,
+            ]);
+            $out = [];
+            foreach ($q->posts as $post) {
+                $product = wc_get_product($post->ID);
+                if ($product) $out[] = $this->wcProductToRestArray($product);
+            }
+            return $out;
+        }
+
+        $args = [
+            'status'  => $query['status'] ?? 'publish',
+            'limit'   => $perPage,
+            'page'    => $page,
+            'orderby' => 'date',
+            'order'   => 'DESC',
+            'return'  => 'objects',
+        ];
+
+        $products = wc_get_products($args);
+        $out = [];
+        foreach ($products as $p) {
+            $out[] = $this->wcProductToRestArray($p);
+        }
+        return $out;
+    }
+
+    private function wcProductToRestArray($product): array
+    {
+        $attrs = [];
+        foreach ($product->get_attributes() as $attr) {
+            $name = $attr->get_name();
+            if (str_starts_with($name, 'pa_')) {
+                $label = function_exists('wc_attribute_label') ? wc_attribute_label($name) : $name;
+            } else {
+                $label = $name;
+            }
+            $options = [];
+            if ($attr->is_taxonomy()) {
+                $terms = wc_get_product_terms($product->get_id(), $attr->get_name(), ['fields' => 'names']);
+                $options = is_array($terms) ? $terms : [];
+            } else {
+                $options = $attr->get_options();
+            }
+            $attrs[] = [
+                'name' => $label,
+                'options' => array_values(array_map('strval', (array)$options)),
+            ];
+        }
+
+        $cats = [];
+        $termIds = $product->get_category_ids();
+        foreach ($termIds as $tid) {
+            $term = get_term($tid, 'product_cat');
+            if ($term && !is_wp_error($term)) {
+                $cats[] = ['id' => (int)$term->term_id, 'name' => $term->name];
+            }
+        }
+
+        $images = [];
+        $imageId = $product->get_image_id();
+        if ($imageId) {
+            $src = wp_get_attachment_url($imageId);
+            if ($src) $images[] = ['src' => $src];
+        }
+        foreach ($product->get_gallery_image_ids() as $gid) {
+            $src = wp_get_attachment_url($gid);
+            if ($src) $images[] = ['src' => $src];
+        }
+
+        return [
+            'id' => $product->get_id(),
+            'name' => $product->get_name(),
+            'status' => $product->get_status(),
+            'permalink' => $product->get_permalink(),
+            'price' => $product->get_price(),
+            'regular_price' => $product->get_regular_price(),
+            'sale_price' => $product->get_sale_price(),
+            'stock_status' => $product->get_stock_status(),
+            'stock_quantity' => $product->get_stock_quantity(),
+            'short_description' => $product->get_short_description(),
+            'description' => $product->get_description(),
+            'categories' => $cats,
+            'attributes' => $attrs,
+            'images' => $images,
+        ];
     }
 
     private function doCurl(string $url, string $method, bool $useBasicAuth): array
@@ -30,7 +182,6 @@ class WooCommerce
             'User-Agent: Mozilla/5.0 (compatible; Computer01Bot/1.0; +https://computer01.com)',
         ];
 
-        // وقتی از 127.0.0.1 می‌زنیم، Host باید دامنه واقعی سایت باشد
         $host = (string)(parse_url($url, PHP_URL_HOST) ?: '');
         if (in_array($host, ['127.0.0.1', 'localhost', '::1'], true)) {
             $headers[] = 'Host: ' . $this->publicHost;
@@ -89,13 +240,24 @@ class WooCommerce
 
     private function request(string $method, string $path, array $query = []): array
     {
+        // اولویت با اتصال مستقیم وردپرس (بدون HTTP) — فایروال را دور می‌زند
+        if ($this->localMode) {
+            try {
+                return $this->localRequest($path, $query);
+            } catch (\Throwable $e) {
+                // اگر مسیر wp-load اشتباه بود، به REST برمی‌گردیم
+                if (!str_contains($e->getMessage(), 'wp-load')) {
+                    throw $e;
+                }
+            }
+        }
+
         $key = $this->config['consumer_key'] ?? '';
         $secret = $this->config['consumer_secret'] ?? '';
         if ($key === '' || $secret === '') {
-            throw new \RuntimeException('کلیدهای WC_CONSUMER_KEY / WC_CONSUMER_SECRET در .env خالی هستند.');
+            throw new \RuntimeException('کلیدهای WC خالی‌اند و حالت محلی هم فعال نیست. WC_WP_LOAD را تنظیم کنید.');
         }
 
-        // 1) Basic Auth
         $urlBasic = $this->baseUrl . $path;
         if (!empty($query)) {
             $urlBasic .= '?' . http_build_query($query);
@@ -105,7 +267,6 @@ class WooCommerce
             return $this->parseWcResponse($resBasic);
         }
 
-        // 2) Query Auth
         $queryAuth = array_merge([
             'consumer_key'    => $key,
             'consumer_secret' => $secret,
@@ -122,11 +283,10 @@ class WooCommerce
             try {
                 return $this->parseWcResponse($resQuery);
             } catch (\Throwable $e2) {
-                $hint = '';
-                if (str_contains($e1->getMessage(), '403') || str_contains($e2->getMessage(), '403')) {
-                    $hint = ' | راهنما: فایروال هاست/وردپرس درخواست را بلاک کرده. در .env بگذارید WC_INTERNAL_URL=http://127.0.0.1 و Host از دامنه سایت استفاده می‌شود. یا IP سرور ربات را در Wordfence/Imunify360 وایت‌لیست کنید.';
-                }
-                throw new \RuntimeException($e1->getMessage() . ' | fallback: ' . $e2->getMessage() . $hint);
+                throw new \RuntimeException(
+                    $e1->getMessage() . ' | fallback: ' . $e2->getMessage() .
+                    ' | راهنما: HTTP توسط فایروال بسته است. مسیر wp-load.php را در WC_WP_LOAD بگذارید.'
+                );
             }
         }
     }
@@ -267,27 +427,29 @@ class WooCommerce
 
     public function testConnection(): array
     {
-        // تست دسترسی عمومی REST بدون کلید
-        $publicRoot = rtrim($this->config['url'], '/') . '/wp-json/';
-        $probeUrl = (trim((string)($this->config['internal_url'] ?? '')) !== '')
-            ? (rtrim($this->config['internal_url'], '/') . '/wp-json/')
-            : $publicRoot;
-        $probe = $this->doCurl($probeUrl, 'GET', false);
-
         try {
+            if ($this->localMode) {
+                $data = $this->localRequest('/products', ['per_page' => 1, 'status' => 'publish']);
+                return [
+                    'success' => true,
+                    'count' => is_array($data) ? count($data) : 0,
+                    'mode' => 'local-wp-load',
+                    'wp_load' => $this->config['wp_load'],
+                ];
+            }
             $data = $this->request('GET', '/products', ['per_page' => 1]);
             return [
                 'success' => true,
                 'count' => is_array($data) ? count($data) : 0,
-                'probe' => 'wp-json HTTP ' . $probe['code'],
+                'mode' => 'http-rest',
             ];
         } catch (\Throwable $e) {
-            $extra = ' | تست /wp-json/ => HTTP ' . $probe['code'];
-            if ($probe['error']) $extra .= ' cURL:' . $probe['error'];
-            if ($probe['code'] === 403) {
-                $extra .= ' | فایروال سایت درخواست سرور را بلاک کرده (نه فقط کلید API).';
-            }
-            return ['success' => false, 'error' => $e->getMessage() . $extra];
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'local_mode' => $this->localMode ? 'yes' : 'no',
+                'wp_load' => $this->config['wp_load'] ?: '(خالی)',
+            ];
         }
     }
 }
